@@ -82,10 +82,11 @@ void MultiObjectTrackerNode::measurementCallback(
   /* tracker prediction */
   ros::Time measurement_time = input_objects_msg->header.stamp;
   for (auto itr = list_tracker_.begin(); itr != list_tracker_.end(); ++itr) {
-    (*itr)->predict(measurement_time);
+    (*itr)->predict(measurement_time); //根据运动学模型做出预测
   }
 
   /* life cycle check */
+  //每一个tracker超时后要移除
   for (auto itr = list_tracker_.begin(); itr != list_tracker_.end(); ++itr) {
     if (1.0 < (*itr)->getElapsedTimeFromLastUpdate()) {
       auto erase_itr = itr;
@@ -97,14 +98,17 @@ void MultiObjectTrackerNode::measurementCallback(
   /* global nearest neighbor */
   std::unordered_map<int, int> direct_assignment;
   std::unordered_map<int, int> reverse_assignment;
+  //计算出目标pose与tracker中的pose的距离
   Eigen::MatrixXd score_matrix = data_association_->calcScoreMatrix(
     input_transformed_objects, list_tracker_);  // row : tracker, col : measurement
   data_association_->assign(score_matrix, direct_assignment, reverse_assignment);
 
   /* tracker measurement update */
   int tracker_idx = 0;
+  //遍历每一个tracker
   for (auto tracker_itr = list_tracker_.begin(); tracker_itr != list_tracker_.end();
-       ++tracker_itr, ++tracker_idx) {
+       ++tracker_itr, ++tracker_idx) 
+  {
     if (direct_assignment.find(tracker_idx) != direct_assignment.end())  // found
     {
       (*(tracker_itr))
@@ -119,6 +123,7 @@ void MultiObjectTrackerNode::measurementCallback(
   }
 
   /* new tracker */
+  //检测到新目标后就为其分配一个tracker
   for (size_t i = 0; i < input_transformed_objects.feature_objects.size(); ++i) {
     if (reverse_assignment.find(i) != reverse_assignment.end())  // found
       continue;

@@ -64,6 +64,7 @@ bool DataAssociation::assign(
     }
   }
   // Solve
+  //根据score找到全局最优的匹配. (对每一个obj来说,可能是将其匹配给score最大的tracker是最优的,但不一定是全局最优的)
   assignment_problem::MaximizeLinearAssignment(score, &direct_assignment, &reverse_assignment);
 
   for (auto itr = direct_assignment.begin(); itr != direct_assignment.end();) {
@@ -89,25 +90,30 @@ Eigen::MatrixXd DataAssociation::calcScoreMatrix(
   const std::list<std::shared_ptr<Tracker>> & trackers)
 {
   Eigen::MatrixXd score_matrix =
-    Eigen::MatrixXd::Zero(trackers.size(), measurements.feature_objects.size());
+    Eigen::MatrixXd::Zero(trackers.size(), measurements.feature_objects.size());  //tracker * obj_num个元素
   size_t tracker_idx = 0;
   for (auto tracker_itr = trackers.begin(); tracker_itr != trackers.end();
        ++tracker_itr, ++tracker_idx) {
     for (size_t measurement_idx = 0; measurement_idx < measurements.feature_objects.size();
          ++measurement_idx) {
       double score = 0.0;
-      if (can_assign_matrix_(
-            (*tracker_itr)->getType(),
-            measurements.feature_objects.at(measurement_idx).object.semantic.type)) {
-        double max_dist = max_dist_matrix_(
-          (*tracker_itr)->getType(),
+
+      //新检测到的目标类别和tracker的类别相同 才能做关联
+      if (can_assign_matrix_((*tracker_itr)->getType(),measurements.feature_objects.at(measurement_idx).object.semantic.type)) 
+      {
+        // 不同类别的目标有不同的移动速度,形状等,从而有不同的max_dist,max_area等.
+        double max_dist = max_dist_matrix_((*tracker_itr)->getType(),
           measurements.feature_objects.at(measurement_idx).object.semantic.type);
+        //
         double max_area = max_area_matrix_(
           (*tracker_itr)->getType(),
           measurements.feature_objects.at(measurement_idx).object.semantic.type);
+        //
         double min_area = min_area_matrix_(
           (*tracker_itr)->getType(),
           measurements.feature_objects.at(measurement_idx).object.semantic.type);
+        
+        //目标的pose和tracker里记录的pose求直线距离
         double dist = getDistance(
           measurements.feature_objects.at(measurement_idx)
             .object.state.pose_covariance.pose.position,
@@ -124,6 +130,8 @@ Eigen::MatrixXd DataAssociation::calcScoreMatrix(
         // autoware_perception_msgs::Semantic::UNKNOWN)
         //     score += 1.0;
       }
+
+      //得到每一个目标和各个tracker的score.  本质上就是目标pose与tracker中的pose的直线距离.
       score_matrix(tracker_idx, measurement_idx) = score;
     }
   }
