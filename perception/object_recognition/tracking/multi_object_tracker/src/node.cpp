@@ -82,7 +82,7 @@ void MultiObjectTrackerNode::measurementCallback(
   /* tracker prediction */
   ros::Time measurement_time = input_objects_msg->header.stamp;
   for (auto itr = list_tracker_.begin(); itr != list_tracker_.end(); ++itr) {
-    (*itr)->predict(measurement_time); //根据运动学模型做出预测
+    (*itr)->predict(measurement_time); //根据运动学模型做出预测,预测出目标的新的位置.
   }
 
   /* life cycle check */
@@ -101,6 +101,8 @@ void MultiObjectTrackerNode::measurementCallback(
   //计算出目标pose与tracker中的pose的距离
   Eigen::MatrixXd score_matrix = data_association_->calcScoreMatrix(
     input_transformed_objects, list_tracker_);  // row : tracker, col : measurement
+
+  //目标和tracker关联(全局最优)
   data_association_->assign(score_matrix, direct_assignment, reverse_assignment);
 
   /* tracker measurement update */
@@ -111,6 +113,7 @@ void MultiObjectTrackerNode::measurementCallback(
   {
     if (direct_assignment.find(tracker_idx) != direct_assignment.end())  // found
     {
+      //更新观测值
       (*(tracker_itr))
         ->updateWithMeasurement(
           input_transformed_objects.feature_objects.at(direct_assignment.find(tracker_idx)->second)

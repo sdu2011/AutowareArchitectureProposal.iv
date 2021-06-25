@@ -67,8 +67,9 @@ bool DataAssociation::assign(
   //根据score找到全局最优的匹配. (对每一个obj来说,可能是将其匹配给score最大的tracker是最优的,但不一定是全局最优的)
   assignment_problem::MaximizeLinearAssignment(score, &direct_assignment, &reverse_assignment);
 
+  //direct_assignment key:行,即tracker value:列,即obj
   for (auto itr = direct_assignment.begin(); itr != direct_assignment.end();) {
-    if (src(itr->first, itr->second) < score_threshold_) {
+    if (src(itr->first, itr->second) < score_threshold_) {  //关联起来的行,列对应的score过低 过滤掉
       itr = direct_assignment.erase(itr);
       continue;
     } else {

@@ -70,6 +70,7 @@ bool VehicleTracker::predict(const ros::Time & time)
 {
   double dt = (time - last_update_time_).toSec();
   if (dt < 0.0) dt = 0.0;
+  //??这里的vx,vy不是已经有方向了吗,为什么vel不是vx平方+vy平方 再开平方?
   double vel = std::cos(filtered_yaw_) * filtered_vx_ + std::sin(filtered_yaw_) * filtered_vy_;
   if (vel < 0.0 && !is_fixed_yaw_) {
     filtered_posx_ += std::cos(filtered_yaw_ + M_PI) * std::fabs(vel) * dt;
@@ -85,6 +86,8 @@ bool VehicleTracker::predict(const ros::Time & time)
   last_update_time_ = time;
   return true;
 }
+
+//更新观测值.即检测算法检测出来的目标信息. 主要就是计算卡尔曼增益.
 bool VehicleTracker::measure(
   const autoware_perception_msgs::DynamicObject & object, const ros::Time & time)
 {
@@ -151,6 +154,7 @@ bool VehicleTracker::measure(
   last_measurement_time_ = time;
   last_update_time_ = time;
   if (0.0 < dt) {
+    //移动的绝对距离
     double current_vel = std::sqrt(
       (object.state.pose_covariance.pose.position.x - last_measurement_posx_) *
         (object.state.pose_covariance.pose.position.x - last_measurement_posx_) +
