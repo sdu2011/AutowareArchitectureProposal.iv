@@ -18,6 +18,7 @@
 #include <cmath>
 #include "lidar_apollo_instance_segmentation/util.h"
 
+//各种feature生成方式的基类
 FeatureMapInterface::FeatureMapInterface(
   const int _channels, const int _width, const int _height, const int _range)
 : channels(_channels),
@@ -59,6 +60,9 @@ void FeatureMap::resetMap(std::vector<float> & map)
 FeatureMapWithIntensity::FeatureMapWithIntensity(const int width, const int height, const int range)
 : FeatureMapInterface(6, width, height, range)
 {
+/*一共有width*height个feature,每个feature由六个维度构成. 
+  最大高度,平均高度,数量,最大强度,平均强度,非空数量
+*/
   max_height_data = &(map_data[0]) + width * height * 0;
   mean_height_data = &(map_data[0]) + width * height * 1;
   count_data = &(map_data[0]) + width * height * 2;
