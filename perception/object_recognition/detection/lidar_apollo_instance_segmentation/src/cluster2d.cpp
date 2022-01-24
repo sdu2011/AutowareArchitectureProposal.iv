@@ -193,20 +193,32 @@ void Cluster2D::cluster(
     }
   }
   
-  //合并两棵树
-  for (int row = 0; row < rows_; ++row) {
-    for (int col = 0; col < cols_; ++col) {
+  /*
+   一个注意点，两个节点的最顶层父节点不一致，说明他们不属于同一类，既然不属于一类，那为什么要合并呢？原因很简单，在局部区域内(注意一定是局部区域内)，两棵树虽然最顶层不一致，但可能是CNN的误差造成这一结果，事实上这两个区域内很可能是同一种物体，所以这里对临近区域进行合并
+
+   局部区域这个概念在代码中的直观反应是合并只在当前节点的3x3网格中进行(row2&&col2 参数，相距太远必然不属于同种物体，根本不需要去合并，因为一棵树上的节点都是属于同一物体的组件) ！！！
+  */
+  //合并相邻的树
+  for (int row = 0; row < rows_; ++row) 
+  {
+    for (int col = 0; col < cols_; ++col) 
+    {
       Node * node = &nodes[row][col];
-      if (!node->is_center) {
+      if (!node->is_center) 
+      {
         continue;
       }
 
       //仅在3x3范围内合并两棵树
-      for (int row2 = row - 1; row2 <= row + 1; ++row2) {
-        for (int col2 = col - 1; col2 <= col + 1; ++col2) {
-          if ((row2 == row || col2 == col) && IsValidRowCol(row2, col2)) {
+      for (int row2 = row - 1; row2 <= row + 1; ++row2) 
+      {
+        for (int col2 = col - 1; col2 <= col + 1; ++col2) 
+        {
+          if ((row2 == row || col2 == col) && IsValidRowCol(row2, col2)) 
+          {
             Node * node2 = &nodes[row2][col2];
-            if (node2->is_center) {
+            if (node2->is_center) 
+            {
               DisjointSetUnion(node, node2);
             }
           }
@@ -225,6 +237,8 @@ void Cluster2D::cluster(
       if (!node->is_object) {
         continue;
       }
+
+      //找到树的根节点作为一个obstacle
       Node * root = DisjointSetFind(node);
       if (root->obstacle_id < 0) {
         root->obstacle_id = count_obstacles++;
@@ -235,6 +249,8 @@ void Cluster2D::cluster(
       obstacles_[root->obstacle_id].grids.push_back(grid);
     }
   }
+
+
   filter(inferred_data);
   classify(inferred_data);
 }
@@ -247,13 +263,19 @@ void Cluster2D::filter(const std::shared_ptr<float> & inferred_data)
   const float * heading_pt_y_data = inferred_data.get() + siz_ * 10;
   const float * height_pt_data = inferred_data.get() + siz_ * 11;
 
-  for (size_t obstacle_id = 0; obstacle_id < obstacles_.size(); obstacle_id++) {
+  for (size_t obstacle_id = 0; obstacle_id < obstacles_.size(); obstacle_id++) 
+  {
     Obstacle * obs = &obstacles_[obstacle_id];
     double score = 0.0;
     double height = 0.0;
     double vec_x = 0.0;
     double vec_y = 0.0;
-    for (int grid : obs->grids) {
+
+    /*
+    对构成目标的grid的score,height等求均值.
+    */
+    for (int grid : obs->grids) 
+    {
       score += static_cast<double>(confidence_pt_data[grid]);
       height += static_cast<double>(height_pt_data[grid]);
       vec_x += heading_pt_x_data[grid];
@@ -266,6 +288,7 @@ void Cluster2D::filter(const std::shared_ptr<float> & inferred_data)
   }
 }
 
+/*计算了每个候选物体集群k类物体分类对应的平均置信度分数以及所属物体类别*/
 void Cluster2D::classify(const std::shared_ptr<float> & inferred_data)
 {
   const float * classify_pt_data = inferred_data.get() + siz_ * 4;
