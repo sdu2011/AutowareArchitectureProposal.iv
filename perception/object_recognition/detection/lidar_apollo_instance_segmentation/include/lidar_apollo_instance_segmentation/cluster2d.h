@@ -124,7 +124,8 @@ private:
 
   pcl::PointCloud<pcl::PointXYZI>::Ptr pc_ptr_;
   const std::vector<int> * valid_indices_in_pc_ = nullptr;
-
+  
+  //一个grid对应一个Node
   struct Node
   {
     Node * center_node;

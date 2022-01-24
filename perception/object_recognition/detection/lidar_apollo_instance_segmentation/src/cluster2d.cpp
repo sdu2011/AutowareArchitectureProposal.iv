@@ -55,6 +55,7 @@ geometry_msgs::Quaternion getQuaternionFromRPY(const double r, const double p, c
   return tf2::toMsg(q);
 }
 
+//rows:640,cols:640,range:60
 Cluster2D::Cluster2D(const int rows, const int cols, const float range)
 {
   rows_ = rows;
@@ -70,23 +71,48 @@ Cluster2D::Cluster2D(const int rows, const int cols, const float range)
   valid_indices_in_pc_ = nullptr;
 }
 
+//https://github.com/YannZyl/Apollo-Note/blob/master/docs/perception/obstacles_lidar_2_cnn.md
+/*
+输入a节点，如果有链1：a--b--c--d--e。经过Traverse处理，abcde节点父指针指向e，is_traversed=1，并且is_center=true
+
+输入f节点，如果有链2：f--g--c--d--e. 经过Traverse处理，fgcde节点父指针指向e，is_traversed=1，但是fg的is_center=false(没有执行中间的if)，这是因为这棵树上已经存在一条支路abcde用来后续的合并，所以fgcde这条支路就不需要了。
+
+输入h节点，如果有链3：h--i--j--k，经过Traverse处理，hijk节点父指针指向k，is_traversed=1，并且is_center=true，这是第二棵树
+
+其实观察可以发现，每棵树只有一条path的is_center=true，其他支路都是false，所以作用一棵树只与另一颗树的指定支路上合并。传统的并查集仅仅是树的根之间合并，这里增加了根与部分支点间合并，效果更好好。
+*/
 void Cluster2D::traverse(Node * x)
 {
   std::vector<Node *> p;
   p.clear();
 
-  while (x->traversed == 0) {
-    p.push_back(x);
-    x->traversed = 2;
-    x = x->center_node;
+  /*从x开始一直去找它的center_node.从而形成树形结构.
+  比如输入a. 存在关系a-b-c-d-e. p内容为[a,b,c,d,e]. x为e.
+  */
+  while (x->traversed == 0) 
+  {
+    p.push_back(x);//树的每一个node存入p.
+    x->traversed = 2;　//遍历后设置traversed为2,表明这个node已经遍历过.
+    x = x->center_node; 
   }
-  if (x->traversed == 2) {
-    for (int i = static_cast<int>(p.size()) - 1; i >= 0 && p[i] != x; i--) {
+  
+  /*
+　e,d,c,b,a的is_center置为true
+  */
+  if (x->traversed == 2) 
+  {
+    for (int i = static_cast<int>(p.size()) - 1; i >= 0 && p[i] != x; i--) 
+    {
       p[i]->is_center = true;
     }
     x->is_center = true;
   }
-  for (size_t i = 0; i < p.size(); i++) {
+  
+  /*
+  a,b,c,d,e的parent均指向e. 且a,b,c,d,e的traversed置为1.
+  */
+  for (size_t i = 0; i < p.size(); i++) 
+  {
     Node * y = p[i];
     y->traversed = 1;
     y->parent = x->parent;
@@ -98,62 +124,84 @@ void Cluster2D::cluster(
   const pcl::PointIndices & valid_indices, float objectness_thresh,
   bool use_all_grids_for_clustering)
 {
+  //category_pt:包含目标的概率,instance_pt_x_data:目标中心x相对于该grid的偏移,instance_pt_y_data:目标中心y相对于该grid的偏移
   const float * category_pt_data = inferred_data.get();
   const float * instance_pt_x_data = inferred_data.get() + siz_;
   const float * instance_pt_y_data = inferred_data.get() + siz_ * 2;
 
   pc_ptr_ = pc_ptr;
 
+  //一共rows * cols个Node
   std::vector<std::vector<Node>> nodes(rows_, std::vector<Node>(cols_, Node()));
 
   size_t tot_point_num = pc_ptr_->size();
   valid_indices_in_pc_ = &(valid_indices.indices);
   point2grid_.assign(valid_indices_in_pc_->size(), -1);
-
-  for (size_t i = 0; i < valid_indices_in_pc_->size(); ++i) {
+  
+  //遍历点云
+  for (size_t i = 0; i < valid_indices_in_pc_->size(); ++i) 
+  {
     int point_id = valid_indices_in_pc_->at(i);
     const auto & point = pc_ptr_->points[point_id];
     // * the coordinates of x and y have been exchanged in feature generation
     // step,
     // so we swap them back here.
+
+    //计算点位于grid的位置
     int pos_x = F2I(point.y, range_, inv_res_x_);  // col
     int pos_y = F2I(point.x, range_, inv_res_y_);  // row
-    if (IsValidRowCol(pos_y, pos_x)) {
+    if (IsValidRowCol(pos_y, pos_x)) 
+    {
+      //填入当前point归属的grid的下标
       point2grid_[i] = RowCol2Grid(pos_y, pos_x);
+      //记录(pos_y,pos_x)这个grid的点的数量.
       nodes[pos_y][pos_x].point_num++;
     }
   }
 
-  for (int row = 0; row < rows_; ++row) {
-    for (int col = 0; col < cols_; ++col) {
+  //建立新的并查集.　即填充每个grid对应的node信息.包括是否为目标的一部分,对应的center_node等.
+  for (int row = 0; row < rows_; ++row) 
+  {
+    for (int col = 0; col < cols_; ++col) 
+    {
       int grid = RowCol2Grid(row, col);
       Node * node = &nodes[row][col];
+      //parent节点指向自己.node_rank置为0. 定义于disjoint_set.h
       DisjointSetMakeSet(node);
+      //某个grid对应的node是否是物体的一部分,判断标准:1.该grid包含点云中的点 2.category_pt_data>设定阈值
       node->is_object = (use_all_grids_for_clustering || nodes[row][col].point_num > 0) &&
                         (*(category_pt_data + grid) >= objectness_thresh);
       int center_row = std::round(row + instance_pt_x_data[grid] * scale_);
       int center_col = std::round(col + instance_pt_y_data[grid] * scale_);
       center_row = std::min(std::max(center_row, 0), rows_ - 1);
       center_col = std::min(std::max(center_col, 0), cols_ - 1);
+      //填入该node对应的center_node
       node->center_node = &nodes[center_row][center_col];
     }
   }
 
-  for (int row = 0; row < rows_; ++row) {
-    for (int col = 0; col < cols_; ++col) {
+  //产生不相交集合.　即根据每个node的center_node建立树关系.
+  for (int row = 0; row < rows_; ++row) 
+  {
+    for (int col = 0; col < cols_; ++col) 
+    {
       Node * node = &nodes[row][col];
-      if (node->is_object && node->traversed == 0) {
+      if (node->is_object && node->traversed == 0) 
+      {
         traverse(node);
       }
     }
   }
-
+  
+  //合并两棵树
   for (int row = 0; row < rows_; ++row) {
     for (int col = 0; col < cols_; ++col) {
       Node * node = &nodes[row][col];
       if (!node->is_center) {
         continue;
       }
+
+      //仅在3x3范围内合并两棵树
       for (int row2 = row - 1; row2 <= row + 1; ++row2) {
         for (int col2 = col - 1; col2 <= col + 1; ++col2) {
           if ((row2 == row || col2 == col) && IsValidRowCol(row2, col2)) {
@@ -167,6 +215,7 @@ void Cluster2D::cluster(
     }
   }
 
+  //合并完成以后,每一棵树代表一类物体,记录下来.
   int count_obstacles = 0;
   obstacles_.clear();
   id_img_.assign(siz_, -1);
@@ -192,6 +241,7 @@ void Cluster2D::cluster(
 
 void Cluster2D::filter(const std::shared_ptr<float> & inferred_data)
 {
+  //模型输出的含义: isobj/xy_offset/conf/cls(5种类别)/ptx pty/z
   const float * confidence_pt_data = inferred_data.get() + siz_ * 3;
   const float * heading_pt_x_data = inferred_data.get() + siz_ * 9;
   const float * heading_pt_y_data = inferred_data.get() + siz_ * 10;
